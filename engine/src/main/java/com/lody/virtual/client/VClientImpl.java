@@ -63,7 +63,6 @@ import java.util.Map;
 import java.util.Set;
 
 import dalvik.system.DelegateLastClassLoader;
-import me.weishu.exposed.ExposedBridge;
 import mirror.android.app.ActivityThread;
 import mirror.android.app.ActivityThreadNMR1;
 import mirror.android.app.ContextImpl;
@@ -333,19 +332,10 @@ public final class VClientImpl extends IVClient.Stub {
         }
 
 
-        boolean enableXposed = VirtualCore.get().isXposedEnabled();
-        if (enableXposed) {
-            VLog.i(TAG, "Xposed is enabled.");
-            ClassLoader originClassLoader = context.getClassLoader();
-            ExposedBridge.initOnce(context, data.appInfo, originClassLoader);
-            List<InstalledAppInfo> modules = VirtualCore.get().getInstalledApps(0);
-            for (InstalledAppInfo module : modules) {
-                ExposedBridge.loadModule(module.apkPath, module.getOdexFile().getParent(), module.libPath,
-                        data.appInfo, originClassLoader);
-            }
-        } else {
-            VLog.w(TAG, "Xposed is disable..");
-        }
+        // VERTIL (REMOVED — FASE A paso 7): bloque Xposed-in-guest (exposed-core 0.8.1 + exposed-xposedapi)
+        // retirado. Función diferida según IMPLEMENTATION_REMOVAL_REPORT y DEPENDENCY_PROVENANCE §1:
+        // se reintroduciría con LSPlant solo si la dirección lo aprueba (hoy BLOCKED, LGPL-3.0
+        // y duplicaría el mecanismo de hooking).
 
         ClassLoader cl = LoadedApk.getClassLoader.call(data.info);
         if (BuildCompat.isS()) {
