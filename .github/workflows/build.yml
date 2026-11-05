@@ -1,0 +1,127 @@
+# VERTIL — build de release en GitHub Actions (la compilación vive en la nube, no en local)
+#
+# Pila de la rama vertil/main (verificada en los archivos, BUILD_DEVIATIONS.md no existe):
+#   Gradle 8.9 (wrapper del repo) · AGP 8.5.2 · compileSdk 34 · minSdk 24 · targetSdk 28
+#   ndk-build (APP_PLATFORM android-24) · NDK: el que pida AGP 8.5.2 (auto-instalado) · JDK 17
+#
+# Firma: el keystore NUNCA se sube al repo. Se reconstruye en $RUNNER_TEMP desde el Secret
+# KEYSTORE_BASE64, se firma con apksigner (prohibido firma debug) y se borra al final (always()).
+name: VERTIL release build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ vertil/main ]
+
+jobs:
+  build-release:
+    name: assembleRelease (engine + app + controlapp) y firma release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout vertil/main
+        uses: actions/checkout@v4
+        with:
+          ref: vertil/main
+
+      - name: Set up JDK 17 (temurin) con cache de Gradle
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Preparar Android SDK (licencias) y mostrar tooling
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          chmod +x gradlew
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --list_installed 2>/dev/null | grep -Ei 'ndk|build-tools' || true
+
+      - name: ./gradlew :engine:assembleRelease :app:assembleRelease :controlapp:assembleRelease --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew --version
+          ./gradlew :engine:assembleRelease :app:assembleRelease :controlapp:assembleRelease --stacktrace 2>&1 | tee build-log.txt
+
+      - name: Reconstruir keystore desde Secret (en $RUNNER_TEMP, nunca en el workspace)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "${KEYSTORE_BASE64}" ]; then
+            echo "::error::Secret KEYSTORE_BASE64 no definido (Settings → Secrets and variables → Actions → New repository secret)"
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 -d > "$RUNNER_TEMP/vertil-release.keystore"
+          echo "keystore reconstruido: $(wc -c < "$RUNNER_TEMP/vertil-release.keystore") bytes"
+
+      - name: Firmar APKs release con apksigner (keystore de release; prohibido debug)
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n1)"
+          APKSIGNER="$BT/apksigner"; ZIPALIGN="$BT/zipalign"
+          echo "build-tools usados: $BT"
+          KEY_PASSWORD="${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
+          for M in app controlapp; do
+            DIR="$M/build/outputs/apk/release"
+            SRC="$DIR/$M-release-unsigned.apk"
+            [ -f "$SRC" ] || SRC="$DIR/$M-release.apk"
+            [ -f "$SRC" ] || { echo "::error::no se encontró APK release de :$M en $DIR"; exit 1; }
+            "$ZIPALIGN" -f 4 "$SRC" "$DIR/$M-release-aligned.apk"
+            "$APKSIGNER" sign \
+              --ks "$RUNNER_TEMP/vertil-release.keystore" \
+              --ks-key-alias "$KEY_ALIAS" \
+              --ks-pass env:KEYSTORE_PASSWORD \
+              --key-pass env:KEY_PASSWORD \
+              --out "$DIR/$M-release-signed.apk" \
+              "$DIR/$M-release-aligned.apk"
+            rm -f "$SRC" "$DIR/$M-release-aligned.apk"
+            echo "[OK] firmado: $DIR/$M-release-signed.apk"
+          done
+
+      - name: apksigner verify --print-certs (NO debe decir "Android Debug")
+        run: |
+          set -o pipefail
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n1)"
+          {
+            echo "== app-release-signed.apk =="
+            "$BT/apksigner" verify --print-certs --verbose app/build/outputs/apk/release/app-release-signed.apk
+            echo "== controlapp-release-signed.apk =="
+            "$BT/apksigner" verify --print-certs --verbose controlapp/build/outputs/apk/release/controlapp-release-signed.apk
+          } | tee certs-verify.txt
+          if grep -q "Android Debug" certs-verify.txt; then
+            echo "::error::firma DEBUG detectada — prohibido publicar una release firmada con debug"
+            exit 1
+          fi
+          echo "[OK] ambos APK firmados con el keystore de release"
+
+      - name: Borrar material de firma (siempre, incluso si algo falla)
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/vertil-release.keystore" 2>/dev/null || true
+          rm -f keystore.properties *.jks *.keystore 2>/dev/null || true
+          echo "material de firma eliminado del runner"
+
+      - name: Subir artifact VERTIL-release-APKs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VERTIL-release-APKs
+          if-no-files-found: error
+          path: |
+            app/build/outputs/apk/release/app-release-signed.apk
+            controlapp/build/outputs/apk/release/controlapp-release-signed.apk
+
+      - name: Subir artifact VERTIL-build-logs (log completo + verificación de certs)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VERTIL-build-logs
+          if-no-files-found: warn
+          path: |
+            build-log.txt
+            certs-verify.txt

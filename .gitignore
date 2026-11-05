@@ -1,0 +1,15 @@
+# VERTIL — material que NUNCA debe entrar al repo
+*.jks
+*.keystore
+keystore.properties
+local.properties
+
+# Salidas de build y caches
+build/
+.gradle/
+.cxx/
+
+# IDE
+.idea/
+*.iml
+.DS_Store
