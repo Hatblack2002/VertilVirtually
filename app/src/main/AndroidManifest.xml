@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Directiva Fase B del propietario: sideload sin Play. QUERY_ALL_PACKAGES permite listar
+         las apps instaladas en el teléfono para clonarlas al espacio virtual.
+         Justificación documentada en docs/FASE_B_TEST_DIRECTIVE.md (requisito 1). -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <!-- Los stubs (:p0..:p49), StubActivity C0-C99, StubCP y permisos de fabricantes se fusionan
+         automáticamente desde el manifest del motor (:engine). -->
+
+    <application
+        android:name=".VApp"
+        android:label="VERTIL"
+        android:icon="@android:drawable/sym_def_app_icon"
+        android:theme="@android:style/Theme.Material.Light"
+        android:allowBackup="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

@@ -1,0 +1,38 @@
+// VERTIL host (:app) — FASE B. UI de prueba sobre la API pública del motor.
+// Java puro + vistas del framework (sin appcompat/Compose) para minimizar el build;
+// la UI final Compose queda para Fase C (decisión ARCHITECTURE_RECONSTRUCTION §2 revisada).
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.vertil.virtualapp'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.vertil.virtualapp'
+        minSdk 24
+        targetSdk 28
+        versionCode 1
+        versionName '0.1.0-faseB'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation project(':engine')
+}

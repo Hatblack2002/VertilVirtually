@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-include ':engine'
+include ':engine', ':app'
 rootProject.name = 'VERTIL'
