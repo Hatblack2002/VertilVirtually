@@ -55,7 +55,7 @@ public final class AppInstaller {
             }
             if (!res.isSuccess) {
                 // Regla del propietario: causa exacta antes de corregir.
-                return "installPackage falló: " + res.msg;
+                return "installPackage falló: " + res.error;
             }
             return null;
         } catch (Throwable t) {
