@@ -59,6 +59,10 @@ android {
 
 dependencies {
     // Sustituye a me.weishu:free_reflection 3.0.1 (VirtualCore.startup) — INTEGRATED, Apache-2.0
-    implementation 'org.lsposed.hiddenapibypass:hiddenapibypass:6.2'
+    // 6.2 downgrade a 6.1: el AAR 6.2 declara minCompileSdk=37 (verificado en sus
+    // aar-metadata.properties) y la rama está clavada en compileSdk 34 (FASE A paso 5);
+    // 6.1 no declara restricción. Único uso: HiddenApiBypass.addHiddenApiExemptions("L"),
+    // API núcleo presente en 6.1. (run 42127337046: checkReleaseAarMetadata FAILED)
+    implementation 'org.lsposed.hiddenapibypass:hiddenapibypass:6.1'
     compileOnly 'androidx.annotation:annotation:1.8.2'
 }
