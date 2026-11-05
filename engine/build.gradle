@@ -31,6 +31,14 @@ android {
         }
     }
 
+    buildFeatures {
+        // AGP 8 desactiva AIDL por defecto (AGP 8.0 release notes); el motor define
+        // sus interfaces binder en src/main/aidl (IVClient, IServiceConnection,
+        // IIntentReceiver, IJobCallback, ...). Sin esto: 100 errores javac
+        // "cannot find symbol" / "package ... does not exist" (run 42126044480).
+        aidl true
+    }
+
     buildTypes {
         release {
             minifyEnabled false
