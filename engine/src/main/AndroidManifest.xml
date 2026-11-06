@@ -23,6 +23,17 @@
     <uses-permission android:name="android.permission.UPDATE_APP_OPS_STATS" />
     <uses-permission android:name="com.android.voicemail.permission.READ_WRITE_ALL_VOICEMAIL" />
 
+    <!-- Obligatorio desde API 28: DaemonService/InnerService (proceso :x) llaman
+         Service.startForeground(). VirtualApp2022 es anterior a API 28 y no lo declaraba;
+         sin él, startForeground lanza SecurityException "Permission Denial: startForeground
+         ... requires android.permission.FOREGROUND_SERVICE" y el proceso :x muere
+         (crash reportado en el S20, Android 14). Con targetSdk 28 no aplica la
+         exigencia de foregroundServiceType de Android 14. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Para que la notificación del daemon se muestre en Android 13+ (si el usuario
+         concede el permiso en runtime; su ausencia no es fatal). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <uses-permission
         android:name="android.permission.ACCOUNT_MANAGER"
         tools:ignore="ProtectedPermissions" />
