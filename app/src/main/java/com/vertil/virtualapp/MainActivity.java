@@ -36,6 +36,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.lody.virtual.client.core.VirtualCore;
+import com.lody.virtual.client.ipc.VActivityManager;
 import com.lody.virtual.remote.InstalledAppInfo;
 
 import java.io.File;
@@ -511,8 +512,20 @@ public class MainActivity extends Activity {
                         + " (¿sin activity MAIN/LAUNCHER en el clon?)");
                 return;
             }
-            setStatus("Iniciando " + name + " (" + pkg + ")…");
-            startActivity(intent);
+            // REGLA DEL LANZAMIENTO (queja del propietario 11-06: el clon abría con los
+            // datos de la app original): el intent virtual NUNCA va directo a
+            // Activity.startActivity() — sin hooks de binder en el proceso principal,
+            // Android lo resolvería contra los apps REALES y abriría el original con
+            // sus datos. El camino correcto del motor es el binder virtual: servidor :x
+            // → ActivityStack.startActivityInNewTaskLocked → stub en :p con el directorio
+            // de datos VIRTUAL (primera vez = vacío, como Parallel Space).
+            int res = VActivityManager.get().startActivity(intent, 0);
+            if (res == 0) {
+                setStatus("Iniciando " + name + " (" + pkg + ") — proceso virtual :p…");
+            } else {
+                setStatus("FALLO al iniciar " + name + ": código " + res
+                        + " (¿motor activo? ¿activity MAIN/LAUNCHER en el clon?)");
+            }
         } catch (Throwable t) {
             setStatus("FALLO al lanzar " + name + ": " + t);
         }

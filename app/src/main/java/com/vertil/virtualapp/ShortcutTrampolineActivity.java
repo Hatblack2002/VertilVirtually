@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.os.Bundle;
 
 import com.lody.virtual.client.core.VirtualCore;
+import com.lody.virtual.client.ipc.VActivityManager;
 
 /**
  * Trampolín de los accesos directos del espacio virtual en la pantalla de inicio
@@ -31,7 +32,10 @@ public class ShortcutTrampolineActivity extends Activity {
             try {
                 Intent launch = VirtualCore.get().getLaunchIntent(pkg, 0);
                 if (launch != null) {
-                    startActivity(launch);
+                    // Mismo camino obligatorio que en MainActivity: binder virtual del
+                    // motor (servidor :x arranca el stub en :p). Un startActivity crudo
+                    // abriría la app ORIGINAL instalada en el teléfono, no el clon.
+                    VActivityManager.get().startActivity(launch, 0);
                 }
             } catch (Throwable ignored) {
                 // Regla del propietario: nunca un crash del propio trampolín;
