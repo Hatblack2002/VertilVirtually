@@ -22,7 +22,11 @@ public final class LogcatCapture {
     private static final String[] ENGINE_MARKERS = {
             "vertil", "VERTIL", "VirtualCore", "VClient", "VActivityManager", "VPackageManager",
             "lody.virtual", "VASettings", "BinderProvider", "StubActivity", "StubCP",
-            "IOUniformer", "ServiceManagerNative", "InvocationStubManager", "VAppManagerService"
+            "IOUniformer", "ServiceManagerNative", "InvocationStubManager", "VAppManagerService",
+            // Cabeceras de crash: sin estos marcadores se perdía la línea con el tipo y
+            // mensaje de la excepción (java.lang.SecurityException: ...) y los frames
+            // android.*/java.* del stack, dejando el log sin la causa real.
+            "AndroidRuntime", "System.err", "FATAL EXCEPTION", "uncaught"
     };
 
     public static File capture(Context ctx, String targetPkg, int[] outCount) throws IOException {

@@ -484,6 +484,18 @@ public final class VClientImpl extends IVClient.Stub {
     }
 
     private void setupVirtualStorage(ApplicationInfo info, int userId) {
+        // Blindaje: un fallo del almacenamiento sandbox JAMÁS debe matar el bind del clon.
+        // Si el sandbox de la sdcard falla (permisos, ROM restrictiva, volumes no listados),
+        // el clon continúa con los datos privados virtuales intactos (directiva: sin crash loop).
+        try {
+            setupVirtualStorageInternal(info, userId);
+        } catch (Throwable e) {
+            VLog.w(TAG, "setupVirtualStorage falló para " + info.packageName
+                    + "; el clon continúa sin redirección de almacenamiento", e);
+        }
+    }
+
+    private void setupVirtualStorageInternal(ApplicationInfo info, int userId) {
         VirtualStorageManager vsManager = VirtualStorageManager.get();
         boolean enable = vsManager.isVirtualStorageEnable(info.packageName, userId);
         // Android 11, force enable storage redirect.
