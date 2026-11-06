@@ -53,6 +53,22 @@ import mirror.android.content.pm.ParceledListSlice;
 @SuppressWarnings("unused")
 class MethodProxies {
 
+    /**
+     * Android 13 (Tiramisu) cambió en el AIDL de IPackageManager todos los parámetros
+     * "flags" de int a long (AOSP: "Convert PackageManager flags to long"). En el S20
+     * (Android 14) esas llamadas llegan al proxy con java.lang.Long y un cast directo a
+     * Integer lanza "ClassCastException: Long cannot be cast to Integer", matando el
+     * proceso :x al instalar BinderProvider. Number cubre ambas aridades (Integer en
+     * versiones < 13, Long en >= 13) sin cambiar el contrato interno de VPackageManager,
+     * cuyo binder propio sigue declarando flags como int.
+     */
+    private static int toIntFlags(Object arg) {
+        if (arg instanceof Number) {
+            return ((Number) arg).intValue();
+        }
+        return 0;
+    }
+
     static class IsPackageAvailable extends MethodProxy {
 
         @Override
@@ -158,7 +174,7 @@ class MethodProxies {
         @Override
         public Object call(Object who, Method method, Object... args) throws Throwable {
             ComponentName componentName = (ComponentName) args[0];
-            int flags = (int) args[1];
+            int flags = toIntFlags(args[1]);
             int userId = VUserHandle.myUserId();
             ServiceInfo info = VPackageManager.get().getServiceInfo(componentName, flags, userId);
             if (info != null) {
@@ -223,7 +239,7 @@ class MethodProxies {
                 return method.invoke(who, args);
             }
             int userId = VUserHandle.myUserId();
-            int flags = (int) args[1];
+            int flags = toIntFlags(args[1]);
             ActivityInfo info = VPackageManager.get().getActivityInfo(componentName, flags, userId);
             if (info == null) {
                 info = (ActivityInfo) method.invoke(who, args);
@@ -418,7 +434,7 @@ class MethodProxies {
         @Override
         public Object call(Object who, Method method, Object... args) throws Throwable {
             String name = (String) args[0];
-            int flags = (int) args[1];
+            int flags = toIntFlags(args[1]);
             int userId = VUserHandle.myUserId();
             ProviderInfo info = VPackageManager.get().resolveContentProvider(name, flags, userId);
             if (info == null) {
@@ -445,7 +461,7 @@ class MethodProxies {
             boolean slice = ParceledListSliceCompat.isReturnParceledListSlice(method);
             int userId = VUserHandle.myUserId();
             List<ResolveInfo> appResult = VPackageManager.get().queryIntentServices((Intent) args[0],
-                    (String) args[1], (Integer) args[2], userId);
+                    (String) args[1], toIntFlags(args[2]), userId);
             Object _hostResult = method.invoke(who, args);
             if (_hostResult != null) {
                 List<ResolveInfo> hostResult = slice ? (List<ResolveInfo>) ParceledListSlice.getList.call(_hostResult)
@@ -528,7 +544,7 @@ class MethodProxies {
             boolean slice = ParceledListSliceCompat.isReturnParceledListSlice(method);
             int userId = VUserHandle.myUserId();
             List<ResolveInfo> appResult = VPackageManager.get().queryIntentActivities((Intent) args[0],
-                    (String) args[1], (Integer) args[2], userId);
+                    (String) args[1], toIntFlags(args[2]), userId);
             Object _hostResult = method.invoke(who, args);
             if (_hostResult != null) {
                 List<ResolveInfo> hostResult = slice ? (List<ResolveInfo>) ParceledListSlice.getList.call(_hostResult)
@@ -567,7 +583,7 @@ class MethodProxies {
         public Object call(Object who, Method method, Object... args) throws Throwable {
             Intent intent = (Intent) args[0];
             String resolvedType = (String) args[1];
-            int flags = (int) args[2];
+            int flags = toIntFlags(args[2]);
             int userId = VUserHandle.myUserId();
             ResolveInfo resolveInfo = VPackageManager.get().resolveService(intent, resolvedType, flags, userId);
             if (resolveInfo == null) {
@@ -602,7 +618,7 @@ class MethodProxies {
         @Override
         public Object call(Object who, Method method, Object... args) throws Throwable {
             String name = (String) args[0];
-            int flags = (int) args[1];
+            int flags = toIntFlags(args[1]);
             PermissionGroupInfo info = VPackageManager.get().getPermissionGroupInfo(name, flags);
             if (info != null) {
                 return info;
@@ -632,7 +648,7 @@ class MethodProxies {
         @Override
         public Object call(Object who, Method method, Object... args) throws Throwable {
             String pkg = (String) args[0];
-            int flags = (int) args[1];
+            int flags = toIntFlags(args[1]);
             int userId = VUserHandle.myUserId();
             PackageInfo packageInfo = VPackageManager.get().getPackageInfo(pkg, flags, userId);
             if (packageInfo != null) {
@@ -790,7 +806,7 @@ class MethodProxies {
         public Object call(Object who, Method method, Object... args) throws Throwable {
             String processName = (String) args[0];
             int uid = (int) args[1];
-            int flags = (int) args[2];
+            int flags = toIntFlags(args[2]);
             List<ProviderInfo> infos = VPackageManager.get().queryContentProviders(processName, uid, flags);
             if (ParceledListSliceCompat.isReturnParceledListSlice(method)) {
                 return ParceledListSliceCompat.create(infos);
@@ -951,7 +967,7 @@ class MethodProxies {
         public Object call(Object who, Method method, Object... args) throws Throwable {
             Intent intent = (Intent) args[0];
             String resolvedType = (String) args[1];
-            int flags = (int) args[2];
+            int flags = toIntFlags(args[2]);
             int userId = VUserHandle.myUserId();
             ResolveInfo resolveInfo = VPackageManager.get().resolveIntent(intent, resolvedType, flags, userId);
             if (resolveInfo == null) {
@@ -972,7 +988,7 @@ class MethodProxies {
         @Override
         public Object call(Object who, Method method, Object... args) throws Throwable {
             String pkg = (String) args[0];
-            int flags = (int) args[1];
+            int flags = toIntFlags(args[1]);
             if (getHostPkg().equals(pkg)) {
                 return method.invoke(who, args);
             }
@@ -1005,7 +1021,7 @@ class MethodProxies {
         @Override
         public Object call(Object who, Method method, Object... args) throws Throwable {
             ComponentName componentName = (ComponentName) args[0];
-            int flags = (int) args[1];
+            int flags = toIntFlags(args[1]);
             if (getHostPkg().equals(componentName.getPackageName())) {
                 return method.invoke(who, args);
             }
@@ -1052,7 +1068,7 @@ class MethodProxies {
         @Override
         public Object call(Object who, Method method, Object... args) throws Throwable {
 
-            int flags = (Integer) args[0];
+            int flags = toIntFlags(args[0]);
             int userId = VUserHandle.myUserId();
             List<ApplicationInfo> appInfos = VPackageManager.get().getInstalledApplications(flags, userId);
             if (ParceledListSliceCompat.isReturnParceledListSlice(method)) {
@@ -1072,7 +1088,7 @@ class MethodProxies {
 
         @Override
         public Object call(Object who, Method method, Object... args) throws Throwable {
-            int flags = (int) args[0];
+            int flags = toIntFlags(args[0]);
             int userId = VUserHandle.myUserId();
             List<PackageInfo> packageInfos;
             if (isAppProcess()) {
@@ -1102,7 +1118,7 @@ class MethodProxies {
             boolean slice = ParceledListSliceCompat.isReturnParceledListSlice(method);
             int userId = VUserHandle.myUserId();
             List<ResolveInfo> appResult = VPackageManager.get().queryIntentReceivers((Intent) args[0], (String) args[1],
-                    (Integer) args[2], userId);
+                    toIntFlags(args[2]), userId);
             Object _hostResult = method.invoke(who, args);
             List<ResolveInfo> hostResult = slice ? (List<ResolveInfo>) ParceledListSlice.getList.call(_hostResult)
                     : (List<ResolveInfo>) _hostResult;
@@ -1137,7 +1153,7 @@ class MethodProxies {
             if (getHostPkg().equals(componentName.getPackageName())) {
                 return method.invoke(who, args);
             }
-            int flags = (int) args[1];
+            int flags = toIntFlags(args[1]);
             ActivityInfo info = VPackageManager.get().getReceiverInfo(componentName, flags, 0);
             if (info == null) {
                 info = (ActivityInfo) method.invoke(who, args);
@@ -1206,7 +1222,7 @@ class MethodProxies {
             boolean slice = ParceledListSliceCompat.isReturnParceledListSlice(method);
             int userId = VUserHandle.myUserId();
             List<ResolveInfo> appResult = VPackageManager.get().queryIntentContentProviders((Intent) args[0], (String) args[1],
-                    (Integer) args[2], userId);
+                    toIntFlags(args[2]), userId);
             Object _hostResult = method.invoke(who, args);
             List<ResolveInfo> hostResult = slice ? (List<ResolveInfo>) ParceledListSlice.getList.call(_hostResult)
                     : (List<ResolveInfo>) _hostResult;
