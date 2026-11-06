@@ -11,6 +11,9 @@
     <!-- Los stubs (:p0..:p49), StubActivity C0-C99, StubCP y permisos de fabricantes se fusionan
          automáticamente desde el manifest del motor (:engine). -->
 
+    <!-- Fallback de accesos directos para Android 7 (API 24/25); en 8+ se usa ShortcutManager. -->
+    <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
+
     <application
         android:name=".VApp"
         android:label="VERTIL"
@@ -26,6 +29,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Trampolín de los accesos directos del espacio virtual: el launcher del
+             sistema lo inicia con el paquete del clon y este abre su ventana. -->
+        <activity
+            android:name=".ShortcutTrampolineActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- Comparte logs/crashes con apps de mensajería sin adb (regla del propietario:
              causa exacta compartible desde la propia app). -->

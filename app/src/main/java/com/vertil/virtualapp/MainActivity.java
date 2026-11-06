@@ -11,9 +11,14 @@ import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ShortcutInfo;
+import android.content.pm.ShortcutManager;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.Icon;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.text.TextUtils;
@@ -48,7 +53,8 @@ import java.util.Set;
  * sepultados tras 200+ apps del teléfono y solo se veía el nombre del paquete):
  *  - Primera sección = launcher del espacio virtual: icono + nombre + versión
  *    de cada clon, toque en la fila o en "Lanzar" para iniciarla.
- *  - Pulsación larga sobre un clon = menú: iniciar / fijar logcat / eliminar.
+ *  - Pulsación larga sobre un clon = menú: iniciar / añadir a la pantalla de
+ *    inicio (icono del clon en el home de Android) / fijar logcat / eliminar.
  *  - Estado vacío con guía explícita (clonar o importar).
  *  - Barra de estado del motor (verde/roja): si el motor falla, al tocarla se
  *    copia/comparte la causa completa SIN adb (LogFileProvider + ACTION_SEND).
@@ -519,6 +525,7 @@ public class MainActivity extends Activity {
                 .setTitle(r.title)
                 .setItems(new CharSequence[]{
                         "Iniciar " + r.title,
+                        "Añadir a la pantalla de inicio…",
                         "Fijar logcat en " + r.pkg,
                         "Eliminar del espacio virtual…"
                 }, new DialogInterface.OnClickListener() {
@@ -527,6 +534,8 @@ public class MainActivity extends Activity {
                         if (which == 0) {
                             launchApp(r.pkg, r.title);
                         } else if (which == 1) {
+                            createHomeShortcut(r);
+                        } else if (which == 2) {
                             logTargetPkg = r.pkg;
                             setStatus("Paquete objetivo del logcat: " + logTargetPkg);
                         } else {
@@ -536,6 +545,61 @@ public class MainActivity extends Activity {
                 })
                 .setNegativeButton("Cerrar", null)
                 .show();
+    }
+
+    /**
+     * Fija un icono del clon en la pantalla de inicio de Android (petición del
+     * propietario: ver el espacio virtual como apps independientes desde el
+     * Android normal). El icono usa la identidad del clon (nombre + icono real);
+     * al tocarlo, ShortcutTrampolineActivity abre SU ventana directamente.
+     * Android 8+: ShortcutManager.requestPinShortcut (diálogo del sistema).
+     * Android 7: broadcast legacy INSTALL_SHORTCUT.
+     */
+    private void createHomeShortcut(final Row r) {
+        try {
+            Bitmap bmp = null;
+            if (r.icon != null) {
+                try {
+                    bmp = com.lody.virtual.helper.utils.DrawableUtils.drawableToBitMap(r.icon);
+                } catch (Throwable ignored) {
+                }
+            }
+            Intent launch = new Intent(this, ShortcutTrampolineActivity.class);
+            launch.setAction(Intent.ACTION_VIEW);
+            launch.putExtra(ShortcutTrampolineActivity.EXTRA_PACKAGE, r.pkg);
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            String name = r.title != null ? r.title : r.pkg;
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ShortcutManager sm = getSystemService(ShortcutManager.class);
+                if (sm == null || !sm.isRequestPinShortcutSupported()) {
+                    setStatus("El launcher actual no permite fijar accesos directos "
+                            + "(requestPinShortcut no soportado). El clon sigue disponible en el espacio virtual.");
+                    return;
+                }
+                ShortcutInfo.Builder b = new ShortcutInfo.Builder(this, "vertil_clone_" + r.pkg)
+                        .setShortLabel(name)
+                        .setLongLabel(name)
+                        .setIntent(launch);
+                if (bmp != null) {
+                    b.setIcon(Icon.createWithBitmap(bmp));
+                }
+                sm.requestPinShortcut(b.build(), null);
+                setStatus("Acceso directo de '" + name
+                        + "' propuesto: confirma el diálogo del sistema para fijarlo en tu pantalla de inicio");
+            } else {
+                Intent legacy = new Intent("com.android.launcher.action.INSTALL_SHORTCUT");
+                legacy.putExtra(Intent.EXTRA_SHORTCUT_NAME, name);
+                if (bmp != null) {
+                    legacy.putExtra(Intent.EXTRA_SHORTCUT_ICON, bmp);
+                }
+                legacy.putExtra(Intent.EXTRA_SHORTCUT_INTENT, launch);
+                sendBroadcast(legacy);
+                setStatus("Acceso directo de '" + name + "' creado en la pantalla de inicio");
+            }
+        } catch (Throwable t) {
+            setStatus("FALLO creando acceso directo: " + t);
+        }
     }
 
     private void confirmUninstall(final Row r) {
