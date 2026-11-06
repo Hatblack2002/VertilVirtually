@@ -26,6 +26,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Comparte logs/crashes con apps de mensajería sin adb (regla del propietario:
+             causa exacta compartible desde la propia app). -->
+        <provider
+            android:name=".LogFileProvider"
+            android:authorities="com.vertil.virtualapp.logfiles"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 
 </manifest>
