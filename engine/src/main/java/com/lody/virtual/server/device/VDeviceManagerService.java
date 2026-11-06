@@ -9,6 +9,7 @@ import android.telephony.TelephonyManager;
 
 import com.lody.virtual.client.core.VirtualCore;
 import com.lody.virtual.helper.collection.SparseArray;
+import com.lody.virtual.helper.utils.VLog;
 import com.lody.virtual.remote.VDeviceInfo;
 import com.lody.virtual.server.IDeviceInfoManager;
 
@@ -22,6 +23,8 @@ import java.util.Random;
  */
 
 public class VDeviceManagerService extends IDeviceInfoManager.Stub {
+
+    private static final String TAG = VDeviceManagerService.class.getSimpleName();
 
     private static VDeviceManagerService sInstance = new VDeviceManagerService();
     private final SparseArray<VDeviceInfo> mDeviceInfos = new SparseArray<>();
@@ -136,7 +139,12 @@ public class VDeviceManagerService extends IDeviceInfoManager.Stub {
 
             info.serial = Build.SERIAL;
         } catch (Throwable e) {
-            e.printStackTrace();
+            // (VERTIL) Android 10+ bloquea getDeviceId sin permisos privilegiados; el
+            // VDeviceInfo conserva el ID aleatorio de generateRandomDeviceInfo() y se
+            // persiste (mPersistenceLayer.save()), que es el comportamiento deseado:
+            // identidad propia y estable del espacio virtual. El fallo se registra por
+            // el log del motor sin ensuciar System.err ni interrumpir el bind.
+            VLog.w(TAG, "generateDeviceInfo: usando identidad aleatoria (" + e + ")");
         }
         return info;
     }

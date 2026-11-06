@@ -6,6 +6,8 @@
 #include "VMPatch.h"
 #include "fake_dlfcn.h"
 
+#include <unistd.h>
+
 namespace FunctionDef {
     typedef void (*Function_DalvikBridgeFunc)(const void **, void *, const void *, void *);
 
@@ -76,18 +78,61 @@ static struct {
 } patchEnv;
 
 
-jint getCallingUid(alias_ref<jclass> clazz) {
+// (VERTIL 0.1.11) La convención del entrypoint de Binder.getCallingUid depende de la
+// versión del framework: hasta Android 9 ART invocaba la implementación con la ABI
+// clásica (JNIEnv*, jclass); desde Android 10 el método es @CriticalNative
+// (frameworks/base/core/java/android/os/Binder.java) y ART la invoca SIN JNIEnv* ni
+// jclass (la impl del framework es "static jint android_os_Binder_getCallingUid()").
+// El reemplazo antiguo (jint getCallingUid(alias_ref<jclass>)) tomaba el primer
+// registro entrante como su único parámetro y lo derreferenciaba — en arm64,
+// "ldr x1, [x19]" en getCallingUid+40 — y con la ABI crítica ese registro contiene
+// basura: SIGSEGV F/DEBUG en libva++.so dentro del proceso del clón (logcat del
+// propietario: Galaxy S20, Android 13, al abrir el clón de Oxide; la llamada llegaba
+// desde mirror.RefMethod.call ← VClientImpl.bindApplicationNoCheck).
+// La versión nueva no depende de la convención entrante:
+//  - nunca derreferencia los argumentos recibidos (env/clazz pueden ser basura);
+//  - obtiene el JNIEnv por GetEnv/TLS y no por registro;
+//  - llama a la implementación original con la ABI correcta según el nivel de API
+//    (>=29: registrada sin argumentos; <29: clásica (JNIEnv*, jclass));
+//  - si falta cualquier pieza, devuelve el uid real del proceso en vez de fallar.
+inline jint getCallingUidImpl(JNIEnv *trustedEnv, jclass clazz) {
     jint uid;
     if (patchEnv.is_art) {
-        uid = patchEnv.jni_orig_getCallingUid(Environment::ensureCurrentThreadIsAttached(),
-                                              clazz.get());
+        if (patchEnv.jni_orig_getCallingUid != NULL) {
+            if (patchEnv.api_level >= 29) {
+                uid = reinterpret_cast<jint (*)()>(patchEnv.jni_orig_getCallingUid)();
+            } else {
+                uid = patchEnv.jni_orig_getCallingUid(trustedEnv, clazz);
+            }
+        } else {
+            uid = (jint) getuid();
+        }
     } else {
         uid = patchEnv.native_getCallingUid(patchEnv.IPCThreadState_self());
     }
-    uid = Environment::ensureCurrentThreadIsAttached()->CallStaticIntMethod(nativeEngineClass.get(),
-                                                                            patchEnv.method_onGetCallingUid,
-                                                                            uid);
+    JNIEnv *env = trustedEnv != NULL ? trustedEnv : Environment::ensureCurrentThreadIsAttached();
+    if (env != NULL && nativeEngineClass.get() != NULL
+        && patchEnv.method_onGetCallingUid != NULL) {
+        jint mapped = env->CallStaticIntMethod(nativeEngineClass.get(),
+                                               patchEnv.method_onGetCallingUid, uid);
+        if (env->ExceptionCheck() != JNI_TRUE) {
+            return mapped;
+        }
+        env->ExceptionClear();
+    }
     return uid;
+}
+
+// Entrypoint que instala replaceGetCallingUid sobre el ArtMethod de Binder.getCallingUid.
+// Con la ABI clásica (API < 29) env/clazz llegan válidos y se usan tal cual; con la
+// ABI crítica (API >= 29) se descartan: llegan basura y jamás deben leerse.
+jint getCallingUid(JNIEnv *env, jclass clazz) {
+    return getCallingUidImpl(patchEnv.api_level < 29 ? env : NULL, clazz);
+}
+
+// Solo para la rama Dalvik (muerta en la práctica; todos los dispositivos modernos son ART).
+static jint getCallingUid_dalvik(alias_ref<jclass>) {
+    return getCallingUidImpl(NULL, NULL);
 }
 
 
@@ -286,6 +331,10 @@ void measureNativeOffset(bool isArt) {
         if (!isArt) {
             patchEnv.native_offset += (sizeof(int) + sizeof(void *));
         }
+    } else {
+        // (VERTIL) Centinela: sin offset medido es inseguro parchear entrypoints
+        // (escribiríamos sobre campos arbitrarios del ArtMethod).
+        patchEnv.native_offset = -1;
     }
 }
 
@@ -300,7 +349,7 @@ inline void replaceGetCallingUid(jboolean isArt) {
         patchEnv.jni_orig_getCallingUid = (Function_getCallingUid) (*jniFuncPtr);
         *jniFuncPtr = (void *) getCallingUid;
     } else {
-        binderClass->registerNatives({makeNativeMethod("getCallingUid", getCallingUid)});
+        binderClass->registerNatives({makeNativeMethod("getCallingUid", getCallingUid_dalvik)});
     }
 }
 
@@ -441,6 +490,14 @@ void hookAndroidVM(JArrayClass<jobject> javaMethods,
         }
     }
     measureNativeOffset(isArt);
+    if (patchEnv.native_offset < 0) {
+        // (VERTIL) Blindaje: sin offset del entrypoint JNI, parchear escribiría sobre
+        // campos arbitrarios del ArtMethod (clase declarante, flags, contador de
+        // hotness...). Se omite todo el parcheo de entrypoints; el motor sigue
+        // funcionando degradado pero sin riesgo de corrupción ni SIGSEGV.
+        ALOGE("Unable to measure the JNI entrypoint offset; skipping entrypoint patches.");
+        return;
+    }
     replaceGetCallingUid(isArt);
 
     replaceOpenDexFileMethod(javaMethods.getElement(OPEN_DEX).get(), isArt,

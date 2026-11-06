@@ -13,13 +13,25 @@ android {
         applicationId 'com.vertil.virtualapp'
         minSdk 24
         targetSdk 28
-        versionCode 11
-        versionName '0.1.10-faseB'
+        versionCode 12
+        versionName '0.1.11-faseB'
     }
 
     buildTypes {
         release {
             minifyEnabled false
+        }
+    }
+
+    packagingOptions {
+        // (VERTIL 0.1.11) El motor de 2022 asume libva++.so EXTRAÍDA en nativeLibraryDir:
+        // NativeEngine.enableIORedirect comprueba esa ruta para arrancar la inyección
+        // nativa (IOUniformer::startUniformer → LD_PRELOAD). AGP 8 empaqueta por defecto
+        // con extractNativeLibs=false y la comprobación fallaba ("io redirect failed"
+        // en el logcat del propietario), dejando el clón SIN redirección de E/S del
+        // espacio virtual (riesgo de que el clón lea/escriba rutas reales).
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 
