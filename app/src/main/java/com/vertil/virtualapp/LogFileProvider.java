@@ -72,7 +72,15 @@ public class LogFileProvider extends ContentProvider {
         return 0;
     }
 
-    @Override
+    // update se implementa en ambas aridades y SIN @Override: el android.jar que ve
+    // javac en el runner declara abstract update(Uri,ContentValues,String,String[])
+    // (4 parámetros, run 42134909698) mientras el framework clásico declara
+    // update(...,String[] selectionArgs, String sortOrder). Cubriendo ambas, la clase
+    // compila contra cualquiera de las dos formas del supertipo.
+    public int update(Uri uri, ContentValues values, String selection, String[] selectionArgs) {
+        return 0;
+    }
+
     public int update(Uri uri, ContentValues values, String selection, String[] selectionArgs, String sortOrder) {
         return 0;
     }
