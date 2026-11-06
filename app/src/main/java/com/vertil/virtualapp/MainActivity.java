@@ -63,6 +63,7 @@ public class MainActivity extends Activity {
     private static final int ROW_PHONE = 1;
     private static final int ROW_CLONED = 2;
     private static final int ROW_PROC = 3;
+    private static final int ROW_EMPTY = 4;
     private static final int REQ_IMPORT = 41;
 
     private ListView list;
