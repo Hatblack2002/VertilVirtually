@@ -43,7 +43,11 @@ public class AutoFillManagerStub extends BinderInvocationProxy {
             AutoFillManagerServiceField.setAccessible(true);
             AutoFillManagerServiceField.set(AutoFillManagerInstance, AutoFillManagerProxy);
         } catch (Throwable tr) {
-            Log.e(TAG, "AutoFillManagerStub inject error.", tr);
+            // (VERTIL) En Android 12+ AutofillManager ya no expone mService mutable y la
+            // inyección deja de aplicar; el autofill no es crítico para el espacio
+            // virtual. El stack completo en cada arranque de clon ensuciaba las
+            // capturas de logcat del propietario → se degrada a aviso de una línea.
+            Log.w(TAG, "AutoFillManager no virtualizado en esta API: " + tr);
             return;
         }
 

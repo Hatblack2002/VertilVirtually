@@ -41,6 +41,14 @@ public final class PackageManagerStub extends MethodInvocationProxy<MethodInvoca
             addMethodProxy(new ResultStaticMethodProxy("setInstantAppCookie", false));
             addMethodProxy(new ResultStaticMethodProxy("isInstantApp", false));
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // (VERTIL) Android 12+: IPackageManager.setSplashScreenTheme exige en el
+            // servicio real que el uid llamador sea dueño del paquete objetivo; un clon
+            // no es un paquete instalado de verdad, así que la llamada original terminaba
+            // en SecurityException y la app fallaba (caso real: ZArchiver en Android 13).
+            // La API solo fija el tema cosmético del splash screen → hook sin efecto.
+            addMethodProxy(new ResultStaticMethodProxy("setSplashScreenTheme", null));
+        }
 
     }
 

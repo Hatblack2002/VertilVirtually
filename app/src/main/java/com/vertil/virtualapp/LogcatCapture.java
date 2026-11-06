@@ -26,7 +26,14 @@ public final class LogcatCapture {
             // Cabeceras de crash: sin estos marcadores se perdía la línea con el tipo y
             // mensaje de la excepción (java.lang.SecurityException: ...) y los frames
             // android.*/java.* del stack, dejando el log sin la causa real.
-            "AndroidRuntime", "System.err", "FATAL EXCEPTION", "uncaught"
+            "AndroidRuntime", "System.err", "FATAL EXCEPTION", "uncaught",
+            // (VERTIL 0.1.12) Bloque COMPLETO del tombstone nativo. El clon se renombra
+            // con setArgV0 (p.ej. "m.catsbit.oxide") y sus líneas de crash NO contienen
+            // "vertil", así que el filtro perdía justo lo que hay que leer para
+            // diagnosticar un SIGSEGV: señal, código, fault addr, ABI, causa,
+            // "Abort message", registros y la línea "pid/name >>> paquete <<<".
+            "F/DEBUG", "Fatal signal", "fault addr", "Abort message", "Cause:",
+            "SIGSEGV", "SIGABRT", "SIGBUS", "SIGILL", "SIGFPE", "SIGTRAP", "SIGSYS"
     };
 
     public static File capture(Context ctx, String targetPkg, int[] outCount) throws IOException {

@@ -122,29 +122,38 @@ public class VDeviceManagerService extends IDeviceInfoManager.Stub {
             return info;
         }
 
+        // (VERTIL) Cada identidad se completa de forma independiente: el fallo de una
+        // NO cancela las demás. En Android 10+ (API 29) getDeviceId exige
+        // READ_PRIVILEGED_PHONE_STATE, que un uid normal nunca obtiene (el uid del
+        // servidor virtual no es dueño de ningún paquete real) → en API>=29 ya no se
+        // intenta: sin excepción, sin ruido en System.err y conservando el ID aleatorio
+        // de generateRandomDeviceInfo(), que mPersistenceLayer persiste por clon
+        // (identidad propia y estable del espacio virtual).
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            try {
+                final TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+                if (tm != null) {
+                    String deviceId = tm.getDeviceId();
+                    if (deviceId != null) {
+                        info.deviceId = deviceId;
+                    }
+                }
+            } catch (Throwable e) {
+                VLog.w(TAG, "getDeviceId no disponible; se conserva el ID virtual (" + e + ")");
+            }
+        }
         try {
-            String deviceId = null;
-            final TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
-            if (tm != null) {
-                deviceId = tm.getDeviceId();
-            }
-            if (deviceId != null) {
-                info.deviceId = deviceId;
-            }
-
             String android_id = Settings.System.getString(context.getContentResolver(), Settings.System.ANDROID_ID);
             if (android_id != null) {
                 info.androidId = android_id;
             }
-
+        } catch (Throwable e) {
+            VLog.w(TAG, "ANDROID_ID no disponible; se conserva el ID virtual (" + e + ")");
+        }
+        try {
             info.serial = Build.SERIAL;
         } catch (Throwable e) {
-            // (VERTIL) Android 10+ bloquea getDeviceId sin permisos privilegiados; el
-            // VDeviceInfo conserva el ID aleatorio de generateRandomDeviceInfo() y se
-            // persiste (mPersistenceLayer.save()), que es el comportamiento deseado:
-            // identidad propia y estable del espacio virtual. El fallo se registra por
-            // el log del motor sin ensuciar System.err ni interrumpir el bind.
-            VLog.w(TAG, "generateDeviceInfo: usando identidad aleatoria (" + e + ")");
+            VLog.w(TAG, "Build.SERIAL no disponible; se conserva el serial virtual (" + e + ")");
         }
         return info;
     }
