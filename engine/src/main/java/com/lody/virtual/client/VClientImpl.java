@@ -63,6 +63,7 @@ import java.util.Map;
 import java.util.Set;
 
 import dalvik.system.DelegateLastClassLoader;
+import dalvik.system.PathClassLoader;
 import mirror.android.app.ActivityThread;
 import mirror.android.app.ActivityThreadNMR1;
 import mirror.android.app.ContextImpl;
@@ -276,6 +277,7 @@ public final class VClientImpl extends IVClient.Stub {
             mirror.android.os.Message.updateCheckRecycle.call(targetSdkVersion);
         }
         if (VASettings.ENABLE_IO_REDIRECT) {
+            markVirtualApksReadOnly(data.appInfo);
             startIOUniformer();
         }
         NativeEngine.launchEngine();
@@ -327,8 +329,22 @@ public final class VClientImpl extends IVClient.Stub {
         }
 
         ApplicationInfo applicationInfo = LoadedApk.mApplicationInfo.get(data.info);
-        if (Build.VERSION.SDK_INT >= 26 && applicationInfo.splitNames == null) {
-            applicationInfo.splitNames = new String[1];
+        if (Build.VERSION.SDK_INT >= 26) {
+            // VERTIL: los arreglos de splits deben ser coherentes. El hack antiguo
+            // (splitNames = new String[1]) dejaba length 1 contra N splits y hacía
+            // explotar a LoadedApk.registerAppInfoToArt() en Android 13+: el bucle
+            // recorre los codePaths EN ORDEN INVERSO e indexa splitNames[i - 1] por
+            // cada split de splitSourceDirs (AIOOBE "length=1; index=2" con 3 splits).
+            // El ClassLoader quedaba null y bindApplicationNoCheck moría con NPE en
+            // cl.getParent(), reiniciando el proceso en bucle. Una app sin splits
+            // real tiene splitNames == null; una app con splits los tiene todos del
+            // mismo largo que splitSourceDirs.
+            if (applicationInfo.splitSourceDirs == null) {
+                applicationInfo.splitNames = null;
+            } else if (applicationInfo.splitNames == null
+                    || applicationInfo.splitNames.length != applicationInfo.splitSourceDirs.length) {
+                applicationInfo.splitNames = deriveSplitNames(applicationInfo.splitSourceDirs);
+            }
         }
 
 
@@ -337,8 +353,27 @@ public final class VClientImpl extends IVClient.Stub {
         // se reintroduciría con LSPlant solo si la dirección lo aprueba (hoy BLOCKED, LGPL-3.0
         // y duplicaría el mecanismo de hooking).
 
-        ClassLoader cl = LoadedApk.getClassLoader.call(data.info);
-        if (BuildCompat.isS()) {
+        ClassLoader cl = null;
+        try {
+            cl = LoadedApk.getClassLoader.call(data.info);
+        } catch (Throwable t) {
+            VLog.e(TAG, "getClassLoader falló para " + packageName + ":", t);
+        }
+        if (cl == null) {
+            // VERTIL: red de seguridad. Si el sistema no pudo crear el ClassLoader
+            // (cualquier fallo interno de LoadedApk), el clón no debe morir en bucle:
+            // se construye uno propio sobre los APKs virtuales y se inyecta en el
+            // LoadedApk para que makeApplication() lo use.
+            cl = createEmergencyClassLoader(applicationInfo);
+            if (cl != null) {
+                try {
+                    Reflect.on(data.info).set("mClassLoader", cl);
+                } catch (Throwable t) {
+                    VLog.e(TAG, "no se pudo inyectar el ClassLoader de emergencia:", t);
+                }
+            }
+        }
+        if (cl != null && BuildCompat.isS()) {
             ClassLoader parent = cl.getParent();
             Reflect.on(cl).set("parent", new DelegateLastClassLoader("/system/framework/android.test.base.jar", parent));
         }
@@ -393,6 +428,90 @@ public final class VClientImpl extends IVClient.Stub {
         }
         VActivityManager.get().appDoneExecuting();
         VirtualCore.get().getComponentDelegate().afterApplicationCreate(mInitialApplication);
+    }
+
+    /**
+     * VERTIL: deriva nombres de splits desde las rutas (sin '.apk'). Se usa solo si
+     * el ApplicationInfo llegó con splitNames ausente o de largo distinto a
+     * splitSourceDirs; Android 13+ exige que ambos tengan el mismo largo.
+     */
+    private static String[] deriveSplitNames(String[] splitSourceDirs) {
+        String[] names = new String[splitSourceDirs.length];
+        for (int i = 0; i < names.length; i++) {
+            String path = splitSourceDirs[i];
+            String name = path == null ? "" : new File(path).getName();
+            if (name.endsWith(".apk")) {
+                name = name.substring(0, name.length() - 4);
+            }
+            names[i] = name;
+        }
+        return names;
+    }
+
+    /**
+     * VERTIL: marca los APKs del almacén virtual como solo-lectura. ART avisa con
+     * "Attempt to load writable dex file" y en Android 14+ será error fatal. Los
+     * clones instalados por versiones anteriores quedaron escribibles; se corrige
+     * en caliente en cada arranque. Solo toca rutas del almacén virtual del motor,
+     * nunca los APKs reales (dependSystem usa la ruta original /data/app).
+     */
+    private static void markVirtualApksReadOnly(ApplicationInfo ai) {
+        try {
+            if (ai == null || ai.sourceDir == null) {
+                return;
+            }
+            File vAppDir = VEnvironment.getDataAppPackageDirectory(ai.packageName);
+            String root = vAppDir.getParentFile() != null ? vAppDir.getParentFile().getAbsolutePath() : "";
+            if (!ai.sourceDir.startsWith(root)) {
+                return; // APK real (dependSystem): no se toca
+            }
+            new File(ai.sourceDir).setReadOnly();
+            if (ai.splitSourceDirs != null) {
+                for (String split : ai.splitSourceDirs) {
+                    if (split != null) {
+                        new File(split).setReadOnly();
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * VERTIL: ClassLoader de emergencia. Replica el classpath que el sistema habría
+     * usado (base + splits, nativeLibraryDir) con el BootClassLoader como padre,
+     * igual que LoadedApk con mBaseClassLoader nulo. Última línea de defensa contra
+     * el bucle de reinicios del bind.
+     */
+    private ClassLoader createEmergencyClassLoader(ApplicationInfo ai) {
+        try {
+            if (ai == null || ai.sourceDir == null) {
+                return null;
+            }
+            StringBuilder dexPath = new StringBuilder(ai.sourceDir);
+            if (ai.splitSourceDirs != null) {
+                for (String split : ai.splitSourceDirs) {
+                    if (split == null) {
+                        continue;
+                    }
+                    dexPath.append(File.pathSeparatorChar).append(split);
+                }
+            }
+            ClassLoader parent = ClassLoader.getSystemClassLoader();
+            if (parent != null) {
+                ClassLoader boot = parent.getParent();
+                if (boot != null) {
+                    parent = boot;
+                }
+            } else {
+                parent = VClientImpl.class.getClassLoader();
+            }
+            VLog.w(TAG, "Usando ClassLoader de emergencia para " + ai.packageName);
+            return new PathClassLoader(dexPath.toString(), ai.nativeLibraryDir, parent);
+        } catch (Throwable t) {
+            VLog.e(TAG, "ClassLoader de emergencia falló:", t);
+            return null;
+        }
     }
 
     private void fixWeChatRecovery(Application app) {

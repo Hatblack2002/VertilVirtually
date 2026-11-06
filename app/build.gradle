@@ -13,8 +13,8 @@ android {
         applicationId 'com.vertil.virtualapp'
         minSdk 24
         targetSdk 28
-        versionCode 10
-        versionName '0.1.9-faseB'
+        versionCode 11
+        versionName '0.1.10-faseB'
     }
 
     buildTypes {

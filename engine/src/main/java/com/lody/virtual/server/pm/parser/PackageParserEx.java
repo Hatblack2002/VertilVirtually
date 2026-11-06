@@ -152,6 +152,31 @@ public class PackageParserEx {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             ai.splitSourceDirs = ps.splitCodePaths;
             ai.splitPublicSourceDirs = ps.splitCodePaths;
+            // VERTIL: splitNames DEBE tener el mismo largo que splitSourceDirs.
+            // Android 13+ (LoadedApk.registerAppInfoToArt) recorre los codePaths en
+            // orden inverso e indexa splitNames[i - 1] por cada split; con largos
+            // distintos lanza ArrayIndexOutOfBoundsException y el ClassLoader del
+            // clón queda null (crash loop en VClientImpl.bindApplicationNoCheck).
+            // Origen de la verdad: ApkParser ya llenó p.splitNames desde el atributo
+            // android:split de cada manifest; si falta o no cuadra, se deriva del
+            // nombre de archivo.
+            if (ps.splitCodePaths != null) {
+                if (p.splitNames != null && p.splitNames.length == ps.splitCodePaths.length) {
+                    ai.splitNames = p.splitNames;
+                } else {
+                    String[] names = new String[ps.splitCodePaths.length];
+                    for (int i = 0; i < names.length; i++) {
+                        String name = new File(ps.splitCodePaths[i]).getName();
+                        if (name.endsWith(".apk")) {
+                            name = name.substring(0, name.length() - 4);
+                        }
+                        names[i] = name;
+                    }
+                    ai.splitNames = names;
+                }
+            } else {
+                ai.splitNames = null;
+            }
 
             ApplicationInfoL.scanSourceDir.set(ai, ai.dataDir);
             ApplicationInfoL.scanPublicSourceDir.set(ai, ai.dataDir);

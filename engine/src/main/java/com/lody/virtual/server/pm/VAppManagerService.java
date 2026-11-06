@@ -220,6 +220,11 @@ public class VAppManagerService extends IAppManager.Stub {
                 for (int i = 0; i < length; i++) {
                     String splitName = pkg.splitNames[i];
                     File privateSplitFile = new File(appDir, splitName + ".apk");
+                    // VERTIL: los splits quedan solo-lectura desde 0.1.10; si existe
+                    // una copia anterior hay que eliminarla o copyFile fallará.
+                    if (privateSplitFile.exists() && !privateSplitFile.delete()) {
+                        return InstallResult.makeFailure("Unable to replace split: " + splitName);
+                    }
                     try {
                         FileUtils.copyFile(new File(pkg.splitCodePaths[i]), privateSplitFile);
 
@@ -238,6 +243,16 @@ public class VAppManagerService extends IAppManager.Stub {
             PackageCacheManager.remove(pkg.packageName);
         }
         chmodPackageDictionary(packageFile);
+        // VERTIL: ART (Android 14+) trata un dex escribible como error fatal
+        // ("Attempt to load writable dex file"). Los APKs copiados al almacén
+        // virtual nunca se modifican tras la instalación: base y splits quedan
+        // solo-lectura (chmod 755 los dejaba escribibles para el dueño).
+        markApkReadOnly(packageFile);
+        if (splitCodePaths != null) {
+            for (String splitPath : splitCodePaths) {
+                markApkReadOnly(new File(splitPath));
+            }
+        }
         PackageSetting ps;
         if (existSetting != null) {
             ps = existSetting;
@@ -299,6 +314,17 @@ public class VAppManagerService extends IAppManager.Stub {
             }
         } catch (Exception e) {
             e.printStackTrace();
+        }
+    }
+
+    /** VERTIL: marca un APK del almacén virtual como solo-lectura (idempotente). */
+    private static void markApkReadOnly(File apk) {
+        try {
+            if (apk != null && apk.exists() && !apk.setReadOnly()) {
+                VLog.w(TAG, "No se pudo marcar como solo-lectura: " + apk.getPath());
+            }
+        } catch (Throwable t) {
+            VLog.w(TAG, "markApkReadOnly falló: " + t.getMessage());
         }
     }
 
