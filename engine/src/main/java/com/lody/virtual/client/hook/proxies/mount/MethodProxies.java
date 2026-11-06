@@ -1,10 +1,10 @@
 package com.lody.virtual.client.hook.proxies.mount;
 
 import android.os.Build;
-import android.os.UserHandle;
 
 import com.lody.virtual.client.hook.base.MethodProxy;
 import com.lody.virtual.client.hook.utils.MethodParameterUtils;
+import com.lody.virtual.os.VUserHandle;
 
 import java.io.File;
 import java.lang.reflect.Method;
@@ -36,7 +36,7 @@ class MethodProxies {
                     // en CADA bind del clon: crash loop en com.vertil.virtualapp:p0 observado en
                     // Galaxy S20 (Android 13) vía VEnvironment.getVirtualStorageBaseDir
                     // <- VClientImpl.setupVirtualStorage. El clon nunca llegaba a arrancar.
-                    args[0] = UserHandle.getUserId(getRealUid());
+                    args[0] = VUserHandle.getUserId(getRealUid());
                 } else {
                     // Android 9-: getVolumeList(uid, packageName, flags) — uid real del host.
                     args[0] = getRealUid();
