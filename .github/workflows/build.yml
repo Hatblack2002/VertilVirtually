@@ -15,7 +15,7 @@ on:
 
 jobs:
   build-release:
-    name: assembleRelease (engine + app + controlapp) y firma release
+    name: assembleRelease (engine + app) y firma release
     runs-on: ubuntu-latest
 
     steps:
@@ -38,11 +38,13 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --list_installed 2>/dev/null | grep -Ei 'ndk|build-tools' || true
 
-      - name: ./gradlew :engine:assembleRelease :app:assembleRelease :controlapp:assembleRelease --stacktrace
+# Directiva del propietario: UNA sola app con todas las funciones → solo :app (:engine es
+# la librería del motor, se compila como dependencia de :app).
+      - name: ./gradlew :engine:assembleRelease :app:assembleRelease --stacktrace
         run: |
           set -o pipefail
           ./gradlew --version
-          ./gradlew :engine:assembleRelease :app:assembleRelease :controlapp:assembleRelease --stacktrace 2>&1 | tee build-log.txt
+          ./gradlew :engine:assembleRelease :app:assembleRelease --stacktrace 2>&1 | tee build-log.txt
 
       - name: Reconstruir keystore desde Secret (en $RUNNER_TEMP, nunca en el workspace)
         env:
@@ -66,7 +68,7 @@ jobs:
           APKSIGNER="$BT/apksigner"; ZIPALIGN="$BT/zipalign"
           echo "build-tools usados: $BT"
           KEY_PASSWORD="${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
-          for M in app controlapp; do
+          for M in app; do
             DIR="$M/build/outputs/apk/release"
             SRC="$DIR/$M-release-unsigned.apk"
             [ -f "$SRC" ] || SRC="$DIR/$M-release.apk"
@@ -90,8 +92,6 @@ jobs:
           {
             echo "== app-release-signed.apk =="
             "$BT/apksigner" verify --print-certs --verbose app/build/outputs/apk/release/app-release-signed.apk
-            echo "== controlapp-release-signed.apk =="
-            "$BT/apksigner" verify --print-certs --verbose controlapp/build/outputs/apk/release/controlapp-release-signed.apk
           } | tee certs-verify.txt
           if grep -q "Android Debug" certs-verify.txt; then
             echo "::error::firma DEBUG detectada — prohibido publicar una release firmada con debug"
@@ -106,15 +106,14 @@ jobs:
           rm -f keystore.properties *.jks *.keystore 2>/dev/null || true
           echo "material de firma eliminado del runner"
 
-      - name: Subir artifact VERTIL-release-APKs
+      - name: Subir artifact VERTIL-release-APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: VERTIL-release-APKs
+          name: VERTIL-release-APK
           if-no-files-found: error
           path: |
             app/build/outputs/apk/release/app-release-signed.apk
-            controlapp/build/outputs/apk/release/controlapp-release-signed.apk
 
       - name: Subir artifact VERTIL-build-logs (log completo + verificación de certs)
         if: always()

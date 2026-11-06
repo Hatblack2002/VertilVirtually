@@ -12,5 +12,7 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-include ':engine', ':app', ':controlapp'
+# Directiva del propietario: UNA sola aplicación con todas las funciones.
+# El módulo :controlapp se retiró del producto.
+include ':engine', ':app'
 rootProject.name = 'VERTIL'
