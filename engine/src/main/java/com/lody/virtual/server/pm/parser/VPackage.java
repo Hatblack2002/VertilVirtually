@@ -8,7 +8,6 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.ConfigurationInfo;
 import android.content.pm.FeatureInfo;
 import android.content.pm.InstrumentationInfo;
-import android.content.pm.PackageParser;
 import android.content.pm.PermissionGroupInfo;
 import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
@@ -271,8 +270,9 @@ public class VPackage implements Parcelable {
 
         public ActivityComponent activity;
 
-        public ActivityIntentInfo(PackageParser.IntentInfo info) {
-            super(info);
+        public ActivityIntentInfo(IntentFilter filter, boolean hasDefault, int labelRes,
+                                  String nonLocalizedLabel, int icon, int logo, int banner) {
+            super(filter, hasDefault, labelRes, nonLocalizedLabel, icon, logo, banner);
         }
 
         protected ActivityIntentInfo(Parcel in) {
@@ -283,8 +283,9 @@ public class VPackage implements Parcelable {
     public static class ServiceIntentInfo extends IntentInfo {
         public ServiceComponent service;
 
-        public ServiceIntentInfo(PackageParser.IntentInfo info) {
-            super(info);
+        public ServiceIntentInfo(IntentFilter filter, boolean hasDefault, int labelRes,
+                                 String nonLocalizedLabel, int icon, int logo, int banner) {
+            super(filter, hasDefault, labelRes, nonLocalizedLabel, icon, logo, banner);
         }
 
         protected ServiceIntentInfo(Parcel in) {
@@ -295,8 +296,9 @@ public class VPackage implements Parcelable {
     public static class ProviderIntentInfo extends IntentInfo {
         public ProviderComponent provider;
 
-        public ProviderIntentInfo(PackageParser.IntentInfo info) {
-            super(info);
+        public ProviderIntentInfo(IntentFilter filter, boolean hasDefault, int labelRes,
+                                  String nonLocalizedLabel, int icon, int logo, int banner) {
+            super(filter, hasDefault, labelRes, nonLocalizedLabel, icon, logo, banner);
         }
 
         protected ProviderIntentInfo(Parcel in) {
@@ -324,19 +326,15 @@ public class VPackage implements Parcelable {
         public int logo;
         public int banner;
 
-        public IntentInfo(PackageParser.IntentInfo info) {
-            this.filter = info;
-            this.hasDefault = info.hasDefault;
-            this.labelRes = info.labelRes;
-            if (info.nonLocalizedLabel != null) {
-                this.nonLocalizedLabel = info.nonLocalizedLabel.toString();
-            }
-            this.icon = info.icon;
-            this.logo = info.logo;
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.KITKAT) {
-                this.banner = info.banner;
-            }
-
+        public IntentInfo(IntentFilter filter, boolean hasDefault, int labelRes,
+                          String nonLocalizedLabel, int icon, int logo, int banner) {
+            this.filter = filter;
+            this.hasDefault = hasDefault;
+            this.labelRes = labelRes;
+            this.nonLocalizedLabel = nonLocalizedLabel;
+            this.icon = icon;
+            this.logo = logo;
+            this.banner = banner;
         }
 
         protected IntentInfo(Parcel in) {
@@ -377,9 +375,9 @@ public class VPackage implements Parcelable {
 
         }
 
-        public Component(PackageParser.Component component) {
-            this.className = component.className;
-            this.metaData = component.metaData;
+        public Component(String className, Bundle metaData) {
+            this.className = className;
+            this.metaData = metaData;
         }
 
         public ComponentName getComponentName() {
@@ -398,15 +396,11 @@ public class VPackage implements Parcelable {
     public static class ActivityComponent extends Component<ActivityIntentInfo> {
         public ActivityInfo info;
 
-        public ActivityComponent(PackageParser.Activity activity) {
-            super(activity);
-            if (activity.intents != null) {
-                this.intents = new ArrayList<>(activity.intents.size());
-                for (Object o : activity.intents) {
-                    intents.add(new ActivityIntentInfo((PackageParser.IntentInfo) o));
-                }
-            }
-            info = activity.info;
+        public ActivityComponent(ActivityInfo info, String className, Bundle metaData,
+                                 ArrayList<ActivityIntentInfo> intents) {
+            super(className, metaData);
+            this.intents = intents != null ? intents : new ArrayList<ActivityIntentInfo>(0);
+            this.info = info;
         }
 
         protected ActivityComponent(Parcel src) {
@@ -424,15 +418,11 @@ public class VPackage implements Parcelable {
     public static class ServiceComponent extends Component<ServiceIntentInfo> {
         public ServiceInfo info;
 
-        public ServiceComponent(PackageParser.Service service) {
-            super(service);
-            if (service.intents != null) {
-                this.intents = new ArrayList<>(service.intents.size());
-                for (Object o : service.intents) {
-                    intents.add(new ServiceIntentInfo((PackageParser.IntentInfo) o));
-                }
-            }
-            this.info = service.info;
+        public ServiceComponent(ServiceInfo info, String className, Bundle metaData,
+                                ArrayList<ServiceIntentInfo> intents) {
+            super(className, metaData);
+            this.intents = intents != null ? intents : new ArrayList<ServiceIntentInfo>(0);
+            this.info = info;
         }
 
         protected ServiceComponent(Parcel src) {
@@ -450,15 +440,11 @@ public class VPackage implements Parcelable {
     public static class ProviderComponent extends Component<ProviderIntentInfo> {
         public ProviderInfo info;
 
-        public ProviderComponent(PackageParser.Provider provider) {
-            super(provider);
-            if (provider.intents != null) {
-                this.intents = new ArrayList<>(provider.intents.size());
-                for (Object o : provider.intents) {
-                    intents.add(new ProviderIntentInfo((PackageParser.IntentInfo) o));
-                }
-            }
-            this.info = provider.info;
+        public ProviderComponent(ProviderInfo info, String className, Bundle metaData,
+                                 ArrayList<ProviderIntentInfo> intents) {
+            super(className, metaData);
+            this.intents = intents != null ? intents : new ArrayList<ProviderIntentInfo>(0);
+            this.info = info;
         }
 
         protected ProviderComponent(Parcel src) {
@@ -476,9 +462,11 @@ public class VPackage implements Parcelable {
     public static class InstrumentationComponent extends Component<IntentInfo> {
         public InstrumentationInfo info;
 
-        public InstrumentationComponent(PackageParser.Instrumentation i) {
-            super(i);
-            this.info = i.info;
+        public InstrumentationComponent(InstrumentationInfo info, String className, Bundle metaData,
+                                        ArrayList<IntentInfo> intents) {
+            super(className, metaData);
+            this.intents = intents != null ? intents : new ArrayList<IntentInfo>(0);
+            this.info = info;
         }
 
         protected InstrumentationComponent(Parcel src) {
@@ -539,9 +527,11 @@ public class VPackage implements Parcelable {
 
         public PermissionInfo info;
 
-        public PermissionComponent(PackageParser.Permission p) {
-            super(p);
-            this.info = p.info;
+        public PermissionComponent(PermissionInfo info, String className, Bundle metaData,
+                                   ArrayList<IntentInfo> intents) {
+            super(className, metaData);
+            this.intents = intents != null ? intents : new ArrayList<IntentInfo>(0);
+            this.info = info;
         }
 
         protected PermissionComponent(Parcel src) {
@@ -560,9 +550,11 @@ public class VPackage implements Parcelable {
         public PermissionGroupInfo info;
 
 
-        public PermissionGroupComponent(PackageParser.PermissionGroup p) {
-            super(p);
-            this.info = p.info;
+        public PermissionGroupComponent(PermissionGroupInfo info, String className, Bundle metaData,
+                                        ArrayList<IntentInfo> intents) {
+            super(className, metaData);
+            this.intents = intents != null ? intents : new ArrayList<IntentInfo>(0);
+            this.info = info;
         }
 
         protected PermissionGroupComponent(Parcel src) {
