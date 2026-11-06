@@ -6,11 +6,13 @@ import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
@@ -21,6 +23,7 @@ import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.BaseAdapter;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.ScrollView;
@@ -34,18 +37,25 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Panel único de Fase B (directiva del propietario).
  * Regla de esta revisión: la app NUNCA debe quedar como "pantalla de texto".
+ * ESPACIO VIRTUAL PRIMERO (queja del propietario 11-06: los clones quedaban
+ * sepultados tras 200+ apps del teléfono y solo se veía el nombre del paquete):
+ *  - Primera sección = launcher del espacio virtual: icono + nombre + versión
+ *    de cada clon, toque en la fila o en "Lanzar" para iniciarla.
+ *  - Pulsación larga sobre un clon = menú: iniciar / fijar logcat / eliminar.
+ *  - Estado vacío con guía explícita (clonar o importar).
  *  - Barra de estado del motor (verde/roja): si el motor falla, al tocarla se
  *    copia/comparte la causa completa SIN adb (LogFileProvider + ACTION_SEND).
  *  - "Importar APK…": instala en el espacio virtual un APK suelto elegido con el
  *    selector de archivos (además de clonar apps ya instaladas).
- *  - Listado con reintento sin GET_ACTIVITIES y diagnóstico cuando el listado
- *    del teléfono llega vacío.
- * Mantenimiento pulsado sobre un clon = fijarlo como paquete objetivo del logcat.
+ *  - Listado del teléfono con reintento sin GET_ACTIVITIES; los ya clonados se
+ *    marcan "· ya en el espacio".
  */
 public class MainActivity extends Activity {
 
@@ -64,19 +74,37 @@ public class MainActivity extends Activity {
     private File lastLog;
     private File engineCrashFile;
     private long appStartTs;
+    private int lastCloneCount;
 
     private static class Row {
         final int type;
         final String title;
         final String subtitle;
         final int pid;
+        final String pkg;
+        final Drawable icon;
 
         Row(int type, String title, String subtitle, int pid) {
+            this(type, title, subtitle, pid, null, null);
+        }
+
+        Row(int type, String title, String subtitle, int pid, String pkg, Drawable icon) {
             this.type = type;
             this.title = title;
             this.subtitle = subtitle;
             this.pid = pid;
+            this.pkg = pkg;
+            this.icon = icon;
         }
+    }
+
+    /** Datos visuales de un clon para el launcher (cargados en hilo de fondo). */
+    private static class CloneEntry {
+        String pkg;
+        String label;
+        String version;
+        int splits;
+        Drawable icon;
     }
 
     @Override
@@ -138,10 +166,10 @@ public class MainActivity extends Activity {
 
         TextView hint = new TextView(this);
         hint.setTextSize(12);
-        hint.setText("1) Pulsa Clonar en una app del teléfono (o Importar APK…)\n"
-                + "2) Pulsa Lanzar en APPS CLONADAS\n"
-                + "3) Si algo falla: Capturar logcat → Compartir log (WhatsApp/Drive, sin adb)\n"
-                + "Mantén pulsado un clon para fijar el paquete del logcat");
+        hint.setText("Espacio virtual (primera lista): toca una app para INICIARLA\n"
+                + "· mantén pulsada para opciones (iniciar / logcat / eliminar)\n"
+                + "Añade apps con 'Clonar' (teléfono) o 'Importar APK…'\n"
+                + "Si algo falla: Capturar logcat → Compartir log (sin adb)");
         root.addView(hint);
 
         list = new ListView(this);
@@ -152,8 +180,7 @@ public class MainActivity extends Activity {
             public boolean onItemLongClick(AdapterView<?> parent, View view, int position, long id) {
                 Row r = adapter.getItem(position);
                 if (r != null && r.type == ROW_CLONED) {
-                    logTargetPkg = r.subtitle;
-                    setStatus("Paquete objetivo del logcat: " + logTargetPkg);
+                    showCloneMenu(r);
                     return true;
                 }
                 return false;
@@ -198,7 +225,10 @@ public class MainActivity extends Activity {
         } else {
             banner.setBackgroundColor(0xFF1B5E20);
             banner.setTextColor(Color.WHITE);
-            banner.setText("MOTOR VIRTUAL: ACTIVO — elige una app del teléfono y pulsa Clonar");
+            banner.setText(lastCloneCount > 0
+                    ? "MOTOR VIRTUAL: ACTIVO — " + lastCloneCount
+                        + (lastCloneCount == 1 ? " app en el espacio virtual" : " apps en el espacio virtual")
+                    : "MOTOR VIRTUAL: ACTIVO — añade tu primera app (Clonar o Importar APK…)");
             banner.setOnClickListener(null);
         }
     }
@@ -357,11 +387,19 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 final List<Row> rows = buildRows();
+                int n = 0;
+                for (Row r : rows) {
+                    if (r.type == ROW_CLONED) {
+                        n++;
+                    }
+                }
+                final int cloneCount = n;
                 final File crash = findLatestEngineCrash();
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
                         engineCrashFile = crash;
+                        lastCloneCount = cloneCount;
                         paintBanner();
                         adapter = new RowsAdapter(rows);
                         list.setAdapter(adapter);
@@ -457,7 +495,8 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private void launchApp(final String pkg) {
+    private void launchApp(final String pkg, final String label) {
+        final String name = label != null ? label : pkg;
         try {
             Intent intent = VirtualCore.get().getLaunchIntent(pkg, 0);
             if (intent == null) {
@@ -465,11 +504,80 @@ public class MainActivity extends Activity {
                         + " (¿sin activity MAIN/LAUNCHER en el clon?)");
                 return;
             }
+            setStatus("Iniciando " + name + " (" + pkg + ")…");
             startActivity(intent);
-            setStatus("Lanzado " + pkg + " — revisa PROCESOS en Refrescar");
         } catch (Throwable t) {
-            setStatus("FALLO al lanzar " + pkg + ": " + t);
+            setStatus("FALLO al lanzar " + name + ": " + t);
         }
+    }
+
+    // ---------- espacio virtual: menú y eliminación ----------
+
+    private void showCloneMenu(final Row r) {
+        new AlertDialog.Builder(this)
+                .setTitle(r.title)
+                .setItems(new CharSequence[]{
+                        "Iniciar " + r.title,
+                        "Fijar logcat en " + r.pkg,
+                        "Eliminar del espacio virtual…"
+                }, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        if (which == 0) {
+                            launchApp(r.pkg, r.title);
+                        } else if (which == 1) {
+                            logTargetPkg = r.pkg;
+                            setStatus("Paquete objetivo del logcat: " + logTargetPkg);
+                        } else {
+                            confirmUninstall(r);
+                        }
+                    }
+                })
+                .setNegativeButton("Cerrar", null)
+                .show();
+    }
+
+    private void confirmUninstall(final Row r) {
+        new AlertDialog.Builder(this)
+                .setTitle("Eliminar " + r.title)
+                .setMessage("Se borrarán los datos del clon de " + r.pkg
+                        + " dentro del espacio virtual. La app original del teléfono no se toca.")
+                .setPositiveButton("Eliminar", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        setStatus("Eliminando " + r.pkg + " del espacio virtual…");
+                        new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                boolean ok = false;
+                                Throwable err = null;
+                                try {
+                                    ok = VirtualCore.get().uninstallPackage(r.pkg);
+                                } catch (Throwable t) {
+                                    err = t;
+                                }
+                                final boolean fOk = ok;
+                                final Throwable fErr = err;
+                                runOnUiThread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        if (fOk) {
+                                            Toast.makeText(MainActivity.this,
+                                                    r.title + " eliminada del espacio virtual",
+                                                    Toast.LENGTH_SHORT).show();
+                                        } else {
+                                            setStatus("FALLO eliminando " + r.pkg
+                                                    + (fErr != null ? ": " + fErr : " (uninstallPackage=false)"));
+                                        }
+                                        refreshAll();
+                                    }
+                                });
+                            }
+                        }).start();
+                    }
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
     }
 
     private void captureLogcat() {
@@ -513,40 +621,102 @@ public class MainActivity extends Activity {
 
     private List<Row> buildRows() {
         List<Row> rows = new ArrayList<Row>();
+
+        // ---- ESPACIO VIRTUAL (launcher, primera sección — queja del propietario) ----
+        List<CloneEntry> clones = new ArrayList<CloneEntry>();
+        String clonesError = null;
+        try {
+            List<InstalledAppInfo> infos = VirtualCore.get().getInstalledApps(0);
+            PackageManager realPm = VirtualCore.get().getUnHookPackageManager();
+            PackageManager hookedPm = getPackageManager();
+            for (InstalledAppInfo info : infos) {
+                CloneEntry e = new CloneEntry();
+                e.pkg = info.packageName;
+                e.label = info.packageName;
+                e.splits = info.splitCodePaths != null ? info.splitCodePaths.length : 0;
+                try {
+                    ApplicationInfo ai = info.getApplicationInfo(0);
+                    if (ai != null) {
+                        // Icono/etiqueta del APK del clon (vive en los datos privados del host);
+                        // primero con el PM real (sin hooks), luego con el hookeado.
+                        String l = safeLabel(ai, realPm, null);
+                        e.label = l != null ? l : safeLabel(ai, hookedPm, e.label);
+                        try {
+                            e.icon = ai.loadIcon(realPm);
+                        } catch (Throwable ignored) {
+                            try {
+                                e.icon = ai.loadIcon(hookedPm);
+                            } catch (Throwable ignored2) {
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+                try {
+                    PackageInfo pi = info.getPackageInfo(0);
+                    if (pi != null && !TextUtils.isEmpty(pi.versionName)) {
+                        e.version = pi.versionName;
+                    }
+                } catch (Throwable ignored) {
+                }
+                clones.add(e);
+            }
+            Collections.sort(clones, new Comparator<CloneEntry>() {
+                @Override
+                public int compare(CloneEntry a, CloneEntry b) {
+                    return String.valueOf(a.label).compareToIgnoreCase(String.valueOf(b.label));
+                }
+            });
+        } catch (Throwable t) {
+            clonesError = t.getClass().getSimpleName() + ": " + t.getMessage();
+        }
+
+        rows.add(new Row(ROW_HEADER, "ESPACIO VIRTUAL · "
+                + (clonesError != null ? "?" : String.valueOf(clones.size()))
+                + (clones.size() == 1 ? " app" : " apps"), null, 0));
+        if (clonesError != null) {
+            rows.add(new Row(ROW_EMPTY, "No se pudo leer el espacio virtual",
+                    clonesError + "\nSi el motor falló, toca la barra superior para ver y compartir la causa.", 0));
+        } else if (clones.isEmpty()) {
+            rows.add(new Row(ROW_EMPTY, "Tu espacio virtual está vacío",
+                    "Añade tu primera app: botón 'Clonar' en la lista de apps del teléfono (abajo)"
+                            + " o 'Importar APK…'.\n"
+                            + "Las apps del espacio virtual aparecerán aquí con su icono y nombre:"
+                            + " toca una para iniciarla.", 0));
+        } else {
+            for (CloneEntry e : clones) {
+                String sub = e.pkg + (e.version != null ? " · v" + e.version : "")
+                        + (e.splits > 0 ? " · +" + e.splits + " splits" : "");
+                rows.add(new Row(ROW_CLONED, e.label, sub, 0, e.pkg, e.icon));
+            }
+        }
+
+        // ---- AÑADIR AL ESPACIO (fuente: teléfono) ----
+        Set<String> clonedPkgs = new HashSet<String>();
+        for (CloneEntry e : clones) {
+            clonedPkgs.add(e.pkg);
+        }
         List<PackageInfo> installed = listPhoneApps();
-        rows.add(new Row(ROW_HEADER, "APPS EN EL TELÉFONO (fuente) — "
-                + (installed == null ? "?" : installed.size()) + " apps", null, 0));
+        rows.add(new Row(ROW_HEADER, "AÑADIR AL ESPACIO · apps del teléfono ("
+                + (installed == null ? "?" : String.valueOf(installed.size())) + ")", null, 0));
         if (installed != null) {
             for (PackageInfo pi : installed) {
                 ApplicationInfo ai = pi.applicationInfo;
-                if (ai == null) {
-                    continue;
+                if (ai == null || getPackageName().equals(pi.packageName)) {
+                    continue; // clonar VERTIL dentro de VERTIL no tiene sentido
                 }
-                String label;
-                try {
-                    CharSequence cs = ai.loadLabel(getPackageManager());
-                    label = cs != null ? cs.toString() : pi.packageName;
-                } catch (Throwable t) {
-                    label = pi.packageName;
-                }
+                String label = safeLabel(ai, getPackageManager(), pi.packageName);
                 int splits = ai.splitSourceDirs != null ? ai.splitSourceDirs.length : 0;
-                rows.add(new Row(ROW_PHONE, label + (splits > 0 ? "  (+" + splits + " splits)" : ""),
+                boolean already = clonedPkgs.contains(pi.packageName);
+                rows.add(new Row(ROW_PHONE,
+                        label + (already ? "  · ya en el espacio" : "")
+                                + (splits > 0 ? "  (" + "+" + splits + " splits)" : ""),
                         pi.packageName, 0));
             }
         }
 
-        rows.add(new Row(ROW_HEADER, "APPS CLONADAS (motor)", null, 0));
-        try {
-            List<InstalledAppInfo> clones = VirtualCore.get().getInstalledApps(0);
-            for (InstalledAppInfo info : clones) {
-                rows.add(new Row(ROW_CLONED, info.packageName + (info.splitCodePaths != null
-                        ? "  (+" + info.splitCodePaths.length + " splits)" : ""), info.packageName, 0));
-            }
-        } catch (Throwable t) {
-            rows.add(new Row(ROW_HEADER, "FALLO leyendo clones (¿startup falló?): " + t, null, 0));
-        }
-
-        rows.add(new Row(ROW_HEADER, "PROCESOS VIRTUALES :p0..:p49", null, 0));
+        // ---- DIAGNÓSTICO ----
+        rows.add(new Row(ROW_HEADER, "DIAGNÓSTICO · procesos virtuales :p0..:p49", null, 0));
         try {
             ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
             List<ActivityManager.RunningAppProcessInfo> procs = am.getRunningAppProcesses();
@@ -566,6 +736,18 @@ public class MainActivity extends Activity {
             rows.add(new Row(ROW_HEADER, "FALLO leyendo procesos: " + t, null, 0));
         }
         return rows;
+    }
+
+    /** Etiqueta segura de un ApplicationInfo; nunca lanza. */
+    private String safeLabel(ApplicationInfo ai, PackageManager pm, String fallback) {
+        try {
+            CharSequence cs = ai.loadLabel(pm);
+            if (!TextUtils.isEmpty(cs)) {
+                return cs.toString();
+            }
+        } catch (Throwable ignored) {
+        }
+        return fallback;
     }
 
     /**
@@ -632,41 +814,88 @@ public class MainActivity extends Activity {
 
         @Override
         public int getItemViewType(int position) {
-            return rows.get(position).type == ROW_HEADER ? 0 : 1;
+            int t = rows.get(position).type;
+            return (t == ROW_HEADER || t == ROW_EMPTY) ? 0 : 1;
         }
 
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
             final Row row = rows.get(position);
-            if (row.type == ROW_HEADER) {
+            if (row.type == ROW_HEADER || row.type == ROW_EMPTY) {
                 TextView tv = convertView instanceof TextView ? (TextView) convertView : new TextView(MainActivity.this);
-                tv.setText(row.title);
-                tv.setTextSize(13);
-                tv.setTypeface(null, android.graphics.Typeface.BOLD);
-                tv.setPadding(0, dp(10), 0, dp(4));
+                if (row.type == ROW_HEADER) {
+                    tv.setText(row.title);
+                    tv.setTextSize(13);
+                    tv.setTypeface(null, android.graphics.Typeface.BOLD);
+                    tv.setPadding(0, dp(10), 0, dp(4));
+                    // El espacio virtual encabeza la pantalla en verde; el resto en gris azulado.
+                    tv.setTextColor(row.title != null && row.title.startsWith("ESPACIO VIRTUAL")
+                            ? 0xFF1B5E20 : 0xFF37474F);
+                } else {
+                    tv.setText(row.title + "\n\n" + (row.subtitle != null ? row.subtitle : ""));
+                    tv.setTextSize(14);
+                    tv.setTypeface(null, android.graphics.Typeface.NORMAL);
+                    tv.setPadding(dp(4), dp(8), dp(4), dp(8));
+                    tv.setTextColor(0xFF546E7A);
+                }
                 return tv;
             }
-            LinearLayout cell = null;
-            TextView text = null;
-            Button action = null;
+            // Filas de app/proceso: [icono][textos][botón] — reciclable entre tipos.
+            LinearLayout cell;
+            ImageView icon;
+            TextView text;
+            TextView sub;
+            Button action;
             if (convertView instanceof LinearLayout) {
                 cell = (LinearLayout) convertView;
-                text = (TextView) cell.getChildAt(0);
-                action = (Button) cell.getChildAt(1);
-            }
-            if (cell == null) {
+                icon = (ImageView) cell.getChildAt(0);
+                LinearLayout texts = (LinearLayout) cell.getChildAt(1);
+                text = (TextView) texts.getChildAt(0);
+                sub = (TextView) texts.getChildAt(1);
+                action = (Button) cell.getChildAt(2);
+            } else {
                 cell = new LinearLayout(MainActivity.this);
                 cell.setOrientation(LinearLayout.HORIZONTAL);
                 cell.setGravity(Gravity.CENTER_VERTICAL);
+                cell.setPadding(0, dp(4), 0, dp(4));
+                icon = new ImageView(MainActivity.this);
+                LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(46), dp(46));
+                ip.setMargins(0, 0, dp(10), 0);
+                cell.addView(icon, ip);
+                LinearLayout texts = new LinearLayout(MainActivity.this);
+                texts.setOrientation(LinearLayout.VERTICAL);
                 text = new TextView(MainActivity.this);
-                text.setTextSize(14);
-                LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0,
-                        ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-                cell.addView(text, tp);
+                text.setTextSize(15);
+                text.setTypeface(null, android.graphics.Typeface.BOLD);
+                sub = new TextView(MainActivity.this);
+                sub.setTextSize(11);
+                sub.setTextColor(0xFF607D8B);
+                texts.addView(text, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                texts.addView(sub, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                cell.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
                 action = mkButton("…");
                 cell.addView(action, lp(1));
             }
-            text.setText(row.title + "\n" + (row.subtitle != null ? row.subtitle : ""));
+            boolean isClone = row.type == ROW_CLONED;
+            if (isClone) {
+                if (row.icon != null) {
+                    icon.setImageDrawable(row.icon);
+                } else {
+                    icon.setImageResource(android.R.drawable.sym_def_app_icon);
+                }
+                icon.setVisibility(View.VISIBLE);
+            } else {
+                icon.setVisibility(View.GONE);
+            }
+            text.setText(row.title);
+            if (TextUtils.isEmpty(row.subtitle)) {
+                sub.setVisibility(View.GONE);
+            } else {
+                sub.setText(row.subtitle);
+                sub.setVisibility(View.VISIBLE);
+            }
             if (row.type == ROW_PHONE) {
                 action.setText("Clonar");
                 action.setVisibility(View.VISIBLE);
@@ -687,7 +916,7 @@ public class MainActivity extends Activity {
                 action.setOnClickListener(new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        launchApp(row.subtitle);
+                        launchApp(row.pkg, row.title);
                     }
                 });
             } else {
@@ -699,6 +928,17 @@ public class MainActivity extends Activity {
                         setStatus("Proceso activo pid=" + row.pid);
                     }
                 });
+            }
+            // La fila completa del espacio virtual también inicia la app (launcher).
+            if (isClone) {
+                cell.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        launchApp(row.pkg, row.title);
+                    }
+                });
+            } else {
+                cell.setOnClickListener(null);
             }
             return cell;
         }
