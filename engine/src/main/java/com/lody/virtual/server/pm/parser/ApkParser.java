@@ -1,5 +1,6 @@
 package com.lody.virtual.server.pm.parser;
 
+import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
@@ -8,7 +9,6 @@ import android.content.pm.FeatureInfo;
 import android.content.pm.InstrumentationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.PermissionGroupInfo;
 import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ServiceInfo;
@@ -206,13 +206,13 @@ final class ApkParser {
             for (ProviderInfo pri : pi.providers) provMap.put(pri.name, pri);
         }
 
-        List<VPackage.ActivityComponent> activities = new ArrayList<>();
-        List<VPackage.ActivityComponent> receivers = new ArrayList<>();
-        List<VPackage.ServiceComponent> services = new ArrayList<>();
-        List<VPackage.ProviderComponent> providers = new ArrayList<>();
-        List<String> protectedBroadcasts = new ArrayList<>(0);
-        List<String> usesLibraries = new ArrayList<>(0);
-        List<String> usesOptionalLibraries = new ArrayList<>(0);
+        ArrayList<VPackage.ActivityComponent> activities = new ArrayList<>();
+        ArrayList<VPackage.ActivityComponent> receivers = new ArrayList<>();
+        ArrayList<VPackage.ServiceComponent> services = new ArrayList<>();
+        ArrayList<VPackage.ProviderComponent> providers = new ArrayList<>();
+        ArrayList<String> protectedBroadcasts = new ArrayList<>(0);
+        ArrayList<String> usesLibraries = new ArrayList<>(0);
+        ArrayList<String> usesOptionalLibraries = new ArrayList<>(0);
 
         final int S_NONE = 0, S_ACTIVITY = 1, S_ALIAS = 2, S_RECEIVER = 3, S_SERVICE = 4, S_PROVIDER = 5;
         int state = S_NONE;
@@ -310,7 +310,7 @@ final class ApkParser {
                             String v = attr("name");
                             if (v != null) {
                                 filter.addCategory(v);
-                                if (IntentFilter.DEFAULT_CATEGORY.equals(v)) {
+                                if (Intent.CATEGORY_DEFAULT.equals(v)) {
                                     filterHasDefault = true;
                                 }
                             }
@@ -392,7 +392,8 @@ final class ApkParser {
         pkg.usesLibraries = new ArrayList<>(usesLibraries);
         pkg.usesOptionalLibraries = new ArrayList<>(usesOptionalLibraries);
 
-        // Permissions y grupos declarados por el APK (la API pública sí los da).
+        // Permissions declarados por el APK (la API pública los da; los grupos de
+        // permisos se eliminaron de PackageInfo en API 26 y quedan vacíos).
         pkg.permissions = new ArrayList<>(0);
         if (pi.permissions != null) {
             for (PermissionInfo pinfo : pi.permissions) {
@@ -401,12 +402,6 @@ final class ApkParser {
             }
         }
         pkg.permissionGroups = new ArrayList<>(0);
-        if (pi.permissionGroups != null) {
-            for (PermissionGroupInfo ginfo : pi.permissionGroups) {
-                pkg.permissionGroups.add(new VPackage.PermissionGroupComponent(ginfo, ginfo.name,
-                        ginfo.metaData, new ArrayList<VPackage.IntentInfo>(0)));
-            }
-        }
         pkg.instrumentation = new ArrayList<>(0);
         if (pi.instrumentation != null) {
             for (InstrumentationInfo iinfo : pi.instrumentation) {
